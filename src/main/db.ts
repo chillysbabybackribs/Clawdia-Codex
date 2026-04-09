@@ -95,10 +95,13 @@ export function initDb(): boolean {
     `);
 
     // Run persistence for auto-resume
-    // Migration: drop legacy runs table (from Clawdia8) that has incompatible schema
+    // Migration: drop legacy runs table (from Clawdia8) that has incompatible schema.
+    // Must disable FK checks because legacy tables (run_events, run_approvals, etc.) reference runs(id).
     const runsInfo = db.prepare("PRAGMA table_info(runs)").all() as { name: string }[];
     if (runsInfo.length > 0 && !runsInfo.some(col => col.name === 'user_text')) {
+      db.pragma('foreign_keys = OFF');
       db.exec('DROP TABLE IF EXISTS runs');
+      db.pragma('foreign_keys = ON');
     }
 
     db.exec(`
