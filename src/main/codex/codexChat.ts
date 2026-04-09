@@ -9,6 +9,9 @@ import type { ToolCall } from '../../shared/types';
  *  At runtime __dirname is dist/main/codex/ — three levels up to project root. */
 const SCRIPTS_DIR = path.resolve(__dirname, '..', '..', '..', 'scripts');
 
+/** Path to the compiled MCP browser server script. */
+const MCP_SERVER_PATH = path.resolve(__dirname, '..', 'mcp', 'browserMcpServer.js');
+
 const sessions = new Map<string, string>();
 
 export function clearCodexSessions(): void {
@@ -116,9 +119,13 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
   if (sessionId) sessions.set(conversationId, sessionId);
 
   const modelArgs = model ? ['--model', model] : [];
+  const mcpArgs = [
+    '-c', `mcp_servers.clawdia_browser.command="node"`,
+    '-c', `mcp_servers.clawdia_browser.args=["${MCP_SERVER_PATH.replace(/\\/g, '\\\\')}"]`,
+  ];
   const args = sessionId
-    ? [...modelArgs, 'exec', '--dangerously-bypass-approvals-and-sandbox', '--json', 'resume', sessionId, '-']
-    : [...modelArgs, 'exec', '--dangerously-bypass-approvals-and-sandbox', '--json', '-'];
+    ? [...modelArgs, ...mcpArgs, 'exec', '--dangerously-bypass-approvals-and-sandbox', '--json', 'resume', sessionId, '-']
+    : [...modelArgs, ...mcpArgs, 'exec', '--dangerously-bypass-approvals-and-sandbox', '--json', '-'];
 
   return new Promise((resolve, reject) => {
     const child = spawn(codexBin, args, {
