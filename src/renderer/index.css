@@ -1,0 +1,391 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.14); }
+
+/* Hide scrollbar but allow scroll (for tab bar overflow) */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── App chrome ── */
+.drag-region { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+textarea { field-sizing: content; }
+
+/* ── Chat nav chevrons: shimmer ── */
+@keyframes chevron-shimmer {
+  0%   { opacity: 0.18; filter: drop-shadow(0 0 0px rgba(255,255,255,0)); }
+  50%  { opacity: 0.70; filter: drop-shadow(0 0 6px rgba(255,255,255,0.55)); }
+  100% { opacity: 0.18; filter: drop-shadow(0 0 0px rgba(255,255,255,0)); }
+}
+.chat-nav-chevron {
+  animation: chevron-shimmer 2.8s ease-in-out infinite;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: rgba(255,255,255,0.55);
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  line-height: 0;
+  pointer-events: auto;
+}
+.chat-nav-chevron:hover {
+  animation: none;
+  opacity: 1;
+  color: #fff;
+  filter: drop-shadow(0 0 8px rgba(255,255,255,0.7));
+}
+
+/* ── Tab close button: show on tab hover ── */
+.tab-close-btn { opacity: 0 !important; }
+*:hover > .tab-close-btn { opacity: 0.6 !important; }
+.tab-close-btn:hover { opacity: 1 !important; background: rgba(255,255,255,0.12) !important; }
+
+/* ══════════════════════════════════════════════════
+   MARKDOWN PROSE
+   ══════════════════════════════════════════════════ */
+
+.markdown-prose {
+  font-size: 1rem;
+  line-height: 1.72;
+  color: #e8e8e8;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.markdown-prose p { margin-bottom: 0.75em; }
+.markdown-prose p:last-child { margin-bottom: 0; }
+
+.markdown-prose h1, .markdown-prose h2, .markdown-prose h3, .markdown-prose h4 {
+  color: #ffffff; font-weight: 600; line-height: 1.3; margin-top: 1.4em; margin-bottom: 0.5em;
+}
+.markdown-prose h1:first-child, .markdown-prose h2:first-child, .markdown-prose h3:first-child { margin-top: 0; }
+.markdown-prose h1 { font-size: 1.25em; }
+.markdown-prose h2 { font-size: 1.1em; }
+.markdown-prose h3 { font-size: 1em; }
+.markdown-prose h4 { font-size: 0.95em; color: #bcbcc6; }
+
+.markdown-prose strong { color: #ffffff; font-weight: 600; }
+.markdown-prose em { font-style: italic; color: #ccccd4; }
+
+.markdown-prose a {
+  color: #a0a0a0; text-decoration: underline;
+  text-decoration-color: rgba(255,255,255,0.25);
+  text-underline-offset: 2px;
+  transition: color 0.15s;
+}
+.markdown-prose a:hover { color: #ffffff; }
+
+.markdown-prose code:not(pre code) {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.82em; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.06); padding: 0.15em 0.4em;
+  border-radius: 5px; color: #dcd4ec;
+}
+
+.markdown-prose pre {
+  margin: 0.8em 0; padding: 0; border-radius: 10px; overflow: hidden;
+  background: #0a0a0a; border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.markdown-prose pre code {
+  display: block; padding: 1em 1.2em;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.82em; line-height: 1.6; color: #d4d4dc;
+  overflow-x: auto; background: transparent; border: none; border-radius: 0;
+}
+
+.markdown-prose ul, .markdown-prose ol { padding-left: 1.5em; margin: 0.5em 0; }
+.markdown-prose ul { list-style-type: disc; }
+.markdown-prose ol { list-style-type: decimal; }
+.markdown-prose li { margin: 0.3em 0; line-height: 1.6; }
+.markdown-prose li > p { margin-bottom: 0.3em; }
+.markdown-prose li::marker { color: #5a5a68; }
+.markdown-prose ul ul, .markdown-prose ol ul { list-style-type: circle; margin: 0.2em 0; }
+.markdown-prose ul ul ul { list-style-type: square; }
+
+.markdown-prose table {
+  width: 100%; border-collapse: collapse; margin: 0.8em 0; font-size: 0.85em;
+  border-radius: 8px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.markdown-prose thead { background: rgba(255, 255, 255, 0.04); }
+.markdown-prose th {
+  text-align: left; padding: 0.7em 1em; font-weight: 600; color: #bcbcc8;
+  font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.markdown-prose td { padding: 0.6em 1em; border-bottom: 1px solid rgba(255, 255, 255, 0.04); color: #ccccd4; }
+.markdown-prose tr:last-child td { border-bottom: none; }
+.markdown-prose tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+
+.markdown-prose blockquote {
+  margin: 0.8em 0; padding: 0.6em 1em;
+  border-left: 3px solid rgba(255, 255, 255, 0.20);
+  background: rgba(255, 255, 255, 0.03); border-radius: 0 6px 6px 0; color: #b0b0b0;
+}
+.markdown-prose blockquote p { margin-bottom: 0.3em; }
+.markdown-prose hr { border: none; height: 1px; background: rgba(255, 255, 255, 0.06); margin: 1.2em 0; }
+.markdown-prose img { max-width: 100%; border-radius: 8px; margin: 0.5em 0; }
+
+.chat-file-ref,
+.chat-link-preview {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.chat-file-ref:hover,
+.chat-link-preview:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* ══════════════════════════════════════════════════
+   STREAMING RESPONSE CONTAINER
+   ══════════════════════════════════════════════════ */
+
+/* Structured container for streaming responses */
+.stream-response-container {
+  position: relative;
+  border-left: 2px solid transparent;
+  padding-left: 12px;
+  margin-left: 2px;
+}
+
+.stream-response-container.is-streaming {
+  border-left-color: rgba(255, 255, 255, 0.06);
+}
+
+.stream-response-container.is-streaming::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -1px;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.04) 60%,
+    transparent 100%);
+  border-radius: 1px;
+  animation: stream-bar-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes stream-bar-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.stream-response-container.is-complete {
+  border-left-color: transparent;
+}
+
+/* ── Streaming cursor ── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.streaming-cursor::after {
+  content: '';
+  display: none;
+}
+
+/* Plain-text streaming mode: blinking cursor appended to last paragraph */
+.streaming-plain p:last-child::after {
+  content: '▋';
+  display: inline-block;
+  margin-left: 1px;
+  color: rgba(255, 255, 255, 0.45);
+  animation: cursor-blink 0.9s step-start infinite;
+  font-size: 0.85em;
+  vertical-align: baseline;
+}
+
+/* Markdown finalize transition: no jump, just ensure full opacity */
+.animate-md-in {
+  opacity: 1;
+}
+
+/* ══════════════════════════════════════════════════
+   TOOL ACTIVITY — Monochrome + Shimmer
+   ══════════════════════════════════════════════════ */
+
+.tool-activity-live {
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  padding-left: 10px;
+  margin-left: 1px;
+}
+
+.tool-row {
+  position: relative;
+}
+
+/* Pulsing dot for running tool status */
+@keyframes tool-dot-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.9); }
+  50% { opacity: 0.8; transform: scale(1.1); }
+}
+.tool-status-dot {
+  animation: tool-dot-pulse 1.6s ease-in-out infinite;
+}
+
+/* Tool summary (collapsed state) gets a subtle left accent */
+.tool-summary {
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  padding-left: 10px;
+  margin-left: 1px;
+}
+
+/* ══════════════════════════════════════════════════
+   STATUS LINE — Shimmer + crossfade
+   ══════════════════════════════════════════════════ */
+
+.status-line-container { min-height: 28px; max-height: 28px; }
+
+@keyframes status-dot-pulse {
+  0%, 100% { opacity: 0.4; box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+  50% { opacity: 1; box-shadow: 0 0 8px 2px rgba(255, 255, 255, 0.25); }
+}
+.status-shimmer-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #ffffff; flex-shrink: 0;
+  animation: status-dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes status-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+.status-shimmer-text {
+  color: transparent;
+  background: linear-gradient(90deg,
+    rgba(160, 160, 176, 0.5) 0%, rgba(160, 160, 176, 0.5) 35%,
+    rgba(220, 220, 235, 0.95) 50%, rgba(160, 160, 176, 0.5) 65%,
+    rgba(160, 160, 176, 0.5) 100%);
+  background-size: 200% 100%;
+  background-clip: text; -webkit-background-clip: text;
+  animation: status-shimmer 2.5s ease-in-out infinite;
+  font-weight: 500; letter-spacing: 0.02em;
+}
+
+/* ── Inline shimmer indicator ── */
+.inline-shimmer {
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  background: linear-gradient(90deg,
+    rgba(120, 120, 136, 0.5) 0%, rgba(120, 120, 136, 0.5) 35%,
+    rgba(200, 200, 215, 0.9) 50%, rgba(120, 120, 136, 0.5) 65%,
+    rgba(120, 120, 136, 0.5) 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: status-shimmer 2.8s linear infinite reverse;
+  display: inline-block;
+}
+
+/* Active tool label shimmer — monochrome sweep while running */
+.tool-label-shimmer {
+  color: transparent;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0.30) 0%,
+    rgba(255, 255, 255, 0.30) 35%,
+    rgba(255, 255, 255, 0.72) 50%,
+    rgba(255, 255, 255, 0.30) 65%,
+    rgba(255, 255, 255, 0.30) 100%);
+  background-size: 280% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: tool-label-sweep 2.2s ease-in-out infinite;
+}
+
+@keyframes tool-label-sweep {
+  0%   { background-position: 100% center; }
+  100% { background-position: -100% center; }
+}
+
+/* Sweeping line above thinking / pre-stream shimmer */
+.thinking-shimmer-line {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(120, 120, 140, 0.15) 38%,
+    rgba(220, 220, 235, 0.55) 50%,
+    rgba(120, 120, 140, 0.15) 62%,
+    transparent 100%);
+  background-size: 220% 100%;
+  animation: thinking-line-sweep 2.4s ease-in-out infinite;
+}
+
+@keyframes thinking-line-sweep {
+  0% { background-position: 100% center; opacity: 0.65; }
+  50% { opacity: 1; }
+  100% { background-position: -100% center; opacity: 0.65; }
+}
+
+.codex-wait-glow {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(52, 211, 153, 0.08) 20%,
+    rgba(110, 231, 183, 0.62) 50%,
+    rgba(52, 211, 153, 0.08) 80%,
+    transparent 100%);
+  background-size: 180% 100%;
+  animation: thinking-line-sweep 2.8s ease-in-out infinite;
+}
+
+.codex-orb {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 35%, rgba(236, 253, 245, 0.95), rgba(16, 185, 129, 0.9) 55%, rgba(5, 150, 105, 0.6) 100%);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.08), 0 0 20px rgba(16, 185, 129, 0.35);
+  animation: status-dot-pulse 2.4s ease-in-out infinite;
+}
+
+.codex-scan-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 18px;
+}
+
+.codex-scan-bars span {
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(167, 243, 208, 0.92), rgba(16, 185, 129, 0.32));
+  animation: codex-bars 1.1s ease-in-out infinite;
+}
+
+.codex-scan-bars span:nth-child(1) {
+  height: 9px;
+  animation-delay: 0s;
+}
+
+.codex-scan-bars span:nth-child(2) {
+  height: 15px;
+  animation-delay: 0.12s;
+}
+
+.codex-scan-bars span:nth-child(3) {
+  height: 11px;
+  animation-delay: 0.24s;
+}
+
+@keyframes codex-bars {
+  0%, 100% { transform: scaleY(0.7); opacity: 0.45; }
+  50% { transform: scaleY(1.12); opacity: 1; }
+}
+
+/* ── Terminal log strip — scoped 3px scrollbar ── */
+.terminal-log-strip ::-webkit-scrollbar { width: 3px; }
+.terminal-log-strip ::-webkit-scrollbar-track { background: transparent; }
+.terminal-log-strip ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+.terminal-log-strip ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
