@@ -83,6 +83,34 @@ export function initDb(): boolean {
       // Column already exists — ignore
     }
 
+    // Browser tab persistence
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS browser_tabs (
+        id         TEXT PRIMARY KEY,
+        url        TEXT NOT NULL DEFAULT 'about:blank',
+        title      TEXT NOT NULL DEFAULT 'New Tab',
+        position   INTEGER NOT NULL DEFAULT 0,
+        active     INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+
+    // Run persistence for auto-resume
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runs (
+        id                TEXT PRIMARY KEY,
+        conversation_id   TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        status            TEXT NOT NULL CHECK(status IN ('running','completed','failed','cancelled','interrupted')),
+        user_text         TEXT NOT NULL,
+        model             TEXT,
+        tier              TEXT,
+        started_at        TEXT NOT NULL,
+        ended_at          TEXT,
+        error             TEXT,
+        resume_attempts   INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+    `);
+
     return true;
   } catch (err) {
     console.error('[db] init failed:', err);
@@ -99,4 +127,77 @@ export function updateConversation(id: string, patch: { codex_thread_id?: string
     getDb().prepare('UPDATE conversations SET codex_thread_id = ? WHERE id = ?')
       .run(patch.codex_thread_id, id);
   }
+}
+
+// ── Browser tab persistence ─────────────────────────────────────────────────
+
+export interface BrowserTabRow {
+  id: string;
+  url: string;
+  title: string;
+  position: number;
+  active: number; // 0 or 1
+}
+
+export function getSavedBrowserTabs(): BrowserTabRow[] {
+  return getDb().prepare('SELECT * FROM browser_tabs ORDER BY position ASC').all() as BrowserTabRow[];
+}
+
+export function saveBrowserTabs(tabs: Array<{ id: string; url: string; title: string; active: boolean }>, activeTabId: string | null): void {
+  const d = getDb();
+  const del = d.prepare('DELETE FROM browser_tabs');
+  const ins = d.prepare('INSERT INTO browser_tabs (id, url, title, position, active) VALUES (?, ?, ?, ?, ?)');
+  const txn = d.transaction(() => {
+    del.run();
+    tabs.forEach((tab, i) => {
+      ins.run(tab.id, tab.url, tab.title, i, tab.id === activeTabId ? 1 : 0);
+    });
+  });
+  txn();
+}
+
+// ── Run persistence ─────────────────────────────────────────────────────────
+
+export interface RunRow {
+  id: string;
+  conversation_id: string;
+  status: string;
+  user_text: string;
+  model: string | null;
+  tier: string | null;
+  started_at: string;
+  ended_at: string | null;
+  error: string | null;
+  resume_attempts: number;
+}
+
+export function insertRun(run: {
+  id: string;
+  conversationId: string;
+  status: string;
+  userText: string;
+  model?: string;
+  tier?: string;
+  startedAt: string;
+}): void {
+  getDb().prepare(
+    'INSERT INTO runs (id, conversation_id, status, user_text, model, tier, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(run.id, run.conversationId, run.status, run.userText, run.model ?? null, run.tier ?? null, run.startedAt);
+}
+
+export function updateRunStatus(runId: string, status: string, error?: string): void {
+  const ended = status !== 'running' && status !== 'interrupted' ? new Date().toISOString() : null;
+  getDb().prepare(
+    'UPDATE runs SET status = ?, ended_at = COALESCE(?, ended_at), error = COALESCE(?, error) WHERE id = ?'
+  ).run(status, ended, error ?? null, runId);
+}
+
+export function getInterruptedRuns(): RunRow[] {
+  return getDb().prepare(
+    "SELECT * FROM runs WHERE status IN ('running', 'interrupted')"
+  ).all() as RunRow[];
+}
+
+export function incrementResumeAttempts(runId: string): void {
+  getDb().prepare('UPDATE runs SET resume_attempts = resume_attempts + 1 WHERE id = ?').run(runId);
 }
