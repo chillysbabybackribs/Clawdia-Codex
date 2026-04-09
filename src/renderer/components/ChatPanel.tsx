@@ -412,6 +412,30 @@ export default function ChatPanel({
       onConversationMetaResolved(tabId, { title: payload.title });
     });
 
+    const unsubResumeFailed = api.onResumeFailed?.((payload: { runId: string; conversationId: string; error: string; attempts: number }) => {
+      if (payload.conversationId !== conversationIdRef.current) return;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `resume-failed-${Date.now()}`,
+          role: 'assistant' as const,
+          content: `**Resume failed:** ${payload.error}\n\nThis task was interrupted and could not be automatically resumed.`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+        },
+        {
+          id: `resume-actions-${Date.now() + 1}`,
+          role: 'assistant' as const,
+          content: '',
+          timestamp: '',
+          contentBlocks: [{
+            type: 'text' as const,
+            content: `_Use the retry button in the input bar to resend your message, or start a new conversation._`,
+          }],
+        },
+      ]);
+    });
+
     return () => {
       unsubText?.();
       unsubEnd?.();
@@ -419,6 +443,7 @@ export default function ChatPanel({
       unsubTool?.();
       unsubVerification?.();
       unsubTitle?.();
+      unsubResumeFailed?.();
     };
   }, [tabId, onConversationMetaResolved]);
 
