@@ -1,10 +1,13 @@
 import { spawn } from 'child_process';
+import * as http from 'http';
 import path from 'path';
 import type { WebContents } from 'electron';
 import { IPC_EVENTS } from '../ipc-channels';
 import { getConversation, updateConversation } from '../db';
 import type { ToolCall, ContentBlock, VerificationResult } from '../../shared/types';
 import { captureFileSnapshot, diffFileSnapshots } from '../verification/fsVerify';
+import type { BrowserSnapshot } from '../verification/browserVerify';
+import { verifyUrlChanged, verifyTitleChanged } from '../verification/browserVerify';
 
 /** Path to the scripts directory containing the browser CLI wrapper.
  *  At runtime __dirname is dist/main/codex/ — three levels up to project root. */
@@ -12,6 +15,9 @@ const SCRIPTS_DIR = path.resolve(__dirname, '..', '..', '..', 'scripts');
 
 /** Path to the compiled MCP browser server script. */
 const MCP_SERVER_PATH = path.resolve(__dirname, '..', 'mcp', 'browserMcpServer.js');
+
+/** Path to the compiled MCP OS control server script. */
+const OS_MCP_SERVER_PATH = path.resolve(__dirname, '..', 'mcp', 'osMcpServer.js');
 
 const sessions = new Map<string, string>();
 
@@ -78,6 +84,38 @@ function detectMirrorUrl(item: Record<string, unknown>): string | null {
   return null;
 }
 
+/** Quick bridge call to get active tab state for browser verification. */
+function captureBrowserStateFast(): Promise<BrowserSnapshot> {
+  const port = Number(process.env.BROWSER_BRIDGE_PORT) || 3111;
+  return new Promise((resolve) => {
+    const fallback: BrowserSnapshot = { url: '', title: '', timestampMs: Date.now() };
+    const req = http.get(`http://127.0.0.1:${port}/tabs`, { timeout: 2000 }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const active = body?.data?.tabs?.find((t: any) => t.active);
+          resolve({
+            url: active?.url || '',
+            title: active?.title || '',
+            timestampMs: Date.now(),
+          });
+        } catch { resolve(fallback); }
+      });
+    });
+    req.on('error', () => resolve(fallback));
+    req.on('timeout', () => { req.destroy(); resolve(fallback); });
+  });
+}
+
+/** Detect if a tool is a browser navigation/interaction tool. */
+function isBrowserTool(itemType: string, itemRecord: Record<string, unknown>): boolean {
+  if (['browser_navigate', 'browser_click', 'browser_type'].includes(itemType)) return true;
+  const name = typeof itemRecord.name === 'string' ? itemRecord.name : '';
+  return /^browser_(navigate|click|type)$/.test(name);
+}
+
 export interface StreamCodexChatOpts {
   webContents: WebContents;
   userText: string;
@@ -86,7 +124,7 @@ export interface StreamCodexChatOpts {
   signal: AbortSignal;
 }
 
-const CODEX_SYSTEM_PROMPT = `You are Codex, an autonomous coding agent. You have one tool: the shell (bash). Use it for all tasks. Be concise and action-oriented.
+const CODEX_SYSTEM_PROMPT = `You are Codex, an autonomous agent with full OS control. You have the shell (bash), a browser, and OS-level tools. Be concise and action-oriented.
 
 ## In-App Browser
 
@@ -108,7 +146,78 @@ For complex browser tasks, use the MCP browser tools:
   browser_screenshot — capture viewport
   browser_get_text  — extract readable page content
 
-Use \`browser page-text\` first to read page content. Use \`browser_snapshot\` before interacting with elements.`;
+Use \`browser page-text\` first to read page content. Use \`browser_snapshot\` before interacting with elements.
+
+## OS Control MCP Tools
+
+You can control the entire desktop. Call os_env_info first if unsure what will work.
+
+### Perception
+  os_screenshot        — capture desktop or a specific window (returns image)
+  os_get_active_window — get focused window title, geometry, window ID
+  os_window_list       — list all open windows with IDs and titles
+  os_screen_info       — screen resolution and display info
+  os_process_list      — list running processes (filterable)
+  os_env_info          — detect desktop environment, session type, available tools
+
+### Input
+  os_mouse_move        — move cursor to absolute (x, y)
+  os_mouse_click       — click at position. button: 1=left, 2=middle, 3=right. supports double-click
+  os_mouse_drag        — click-and-drag from one position to another
+  os_key_type          — type text into the focused window
+  os_key_press         — press key combos: "Return", "ctrl+s", "alt+Tab", "super"
+  os_xdotool           — raw xdotool for advanced input (search windows, get mouse location, etc.)
+
+### Window Management
+  os_window_focus      — focus/raise a window by ID or title
+  os_window_resize     — move/resize a window
+  os_window_state      — minimize, maximize, fullscreen, restore, close, always-on-top
+  os_desktop_switch    — switch virtual desktops, or move a window to another desktop
+
+### System
+  os_clipboard_read    — read system clipboard
+  os_clipboard_write   — write to system clipboard
+  os_app_launch        — launch any app, open file, or URL
+  os_notify            — send desktop notification
+
+### D-Bus (Advanced — control any app)
+  os_dbus_list         — list D-Bus services (discover controllable apps)
+  os_dbus_introspect   — inspect a service's interfaces/methods/properties
+  os_dbus_call         — call any D-Bus method (the universal Linux app control API)
+
+### Media & Audio (App-agnostic)
+  os_media_control     — play/pause/next/prev ANY media player via MPRIS D-Bus. Use "list" to see players.
+  os_audio_control     — system volume, mute/unmute via PipeWire
+
+### IMPORTANT: Recipes (follow these exactly)
+
+**Launch an app and play media (e.g. "open spotify and play music"):**
+1. os_app_launch command="spotify" wait_ms=5000  ← launches AND waits for D-Bus registration
+2. os_media_control action="play"                ← start playback
+Done. Two steps. Do NOT screenshot, list windows, check env, or fall back to the browser.
+
+**Launch any app:**
+os_app_launch command="firefox"  ← one step, app persists forever
+
+**Control media that is already playing:**
+os_media_control action="play_pause"  ← works with ANY player (Spotify, Firefox, VLC, Chrome)
+os_media_control action="next"
+os_audio_control action="set_volume" volume=0.7
+
+**Control an app via D-Bus (no GUI clicking):**
+1. os_dbus_list filter="appname"
+2. os_dbus_introspect dest="org.example.App" path="/"
+3. os_dbus_call dest="..." path="..." method="..."
+
+**Interact with a GUI visually (last resort):**
+1. os_screenshot → os_window_focus → os_mouse_click / os_key_type → os_screenshot
+
+### Rules
+- Apps launched with os_app_launch persist permanently. They are NOT closed when the task ends.
+- After os_app_launch, the app is ready. The tool waits for startup and checks D-Bus registration before returning.
+- If os_media_control says "no player found", the app may not be running. Launch it first.
+- Do NOT fall back to the browser, screenshots, or GUI clicking when a direct tool exists.
+- Do NOT call os_env_info, os_screenshot, or os_window_list before launching an app. Just launch it.`;
 
 export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: string; contentBlocks: ContentBlock[]; error?: string }> {
   const { webContents, userText, model, conversationId, signal } = opts;
@@ -123,6 +232,8 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
   const mcpArgs = [
     '-c', `mcp_servers.clawdia_browser.command="node"`,
     '-c', `mcp_servers.clawdia_browser.args=["${MCP_SERVER_PATH.replace(/\\/g, '\\\\')}"]`,
+    '-c', `mcp_servers.clawdia_os.command="node"`,
+    '-c', `mcp_servers.clawdia_os.args=["${OS_MCP_SERVER_PATH.replace(/\\/g, '\\\\')}"]`,
   ];
   const args = sessionId
     ? [...modelArgs, ...mcpArgs, 'exec', '--dangerously-bypass-approvals-and-sandbox', '--json', 'resume', sessionId, '-']
@@ -135,12 +246,22 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
         PATH: `${SCRIPTS_DIR}:${process.env.PATH ?? ''}`,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true, // Own process group so we can kill the entire tree on abort
     });
 
+    /** Kill the entire process group (Codex + MCP servers + shell children). */
+    const killTree = () => {
+      if (child.pid) {
+        try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already dead */ }
+      } else {
+        child.kill('SIGTERM');
+      }
+    };
+
     if (signal.aborted) {
-      child.kill('SIGTERM');
+      killTree();
     } else {
-      signal.addEventListener('abort', () => child.kill('SIGTERM'), { once: true });
+      signal.addEventListener('abort', () => killTree(), { once: true });
     }
 
     const prompt = sessionId
@@ -210,8 +331,9 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
       return /\b(write|create|mkdir|touch|mv|cp|rm|echo\s+.*>|cat\s+.*>|sed\s+-i|tee)\b/.test(cmd);
     }
 
-    // Pre-capture filesystem snapshots for write tools
+    // Pre-capture snapshots for verification
     const fsPreSnapshots = new Map<string, ReturnType<typeof captureFileSnapshot>>();
+    const browserPreSnapshots = new Map<string, BrowserSnapshot>();
 
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
@@ -298,6 +420,11 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
             if (fp) fsPreSnapshots.set(itemId, captureFileSnapshot(fp));
           }
 
+          // Pre-capture browser state for browser tools
+          if (isBrowserTool(itemType, itemRecord)) {
+            captureBrowserStateFast().then(snap => browserPreSnapshots.set(itemId, snap));
+          }
+
           // Check for browser mirror
           const mirrorUrl = detectMirrorUrl(itemRecord);
           if (mirrorUrl && !webContents.isDestroyed()) {
@@ -365,6 +492,18 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
             for (const v of verifications) emitVerification(v);
           }
 
+          // Post-action browser verification
+          const browserPre = browserPreSnapshots.get(itemId);
+          if (browserPre) {
+            browserPreSnapshots.delete(itemId);
+            captureBrowserStateFast().then(browserPost => {
+              const urlResult = verifyUrlChanged(browserPre, browserPost);
+              if (urlResult.changed) emitVerification(urlResult);
+              const titleResult = verifyTitleChanged(browserPre, browserPost);
+              if (titleResult.changed) emitVerification(titleResult);
+            });
+          }
+
           // Tool completed that had a mirror URL — emit BROWSER_MIRROR_DONE
           if (!webContents.isDestroyed()) {
             webContents.send(IPC_EVENTS.BROWSER_MIRROR_DONE, { conversationId });
@@ -377,6 +516,8 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
         if (msg.type === 'item.failed') {
           const pending = pendingActivities.get(itemId);
           pendingActivities.delete(itemId);
+          fsPreSnapshots.delete(itemId); // Clean up orphaned pre-snapshots
+          browserPreSnapshots.delete(itemId);
           emitToolActivity({
             id: itemId,
             name: pending?.name ?? codexItemToolName(itemType),

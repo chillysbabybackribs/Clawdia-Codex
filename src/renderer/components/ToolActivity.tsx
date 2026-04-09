@@ -253,6 +253,8 @@ const VERIFICATION_KIND_LABELS: Record<string, string> = {
   'fs:modified': 'Modified',
   'fs:content_hash': 'Hash',
   'fs:dir_contents': 'Dir',
+  'os:window_focused': 'Window',
+  'os:process_running': 'Proc',
 };
 
 function verificationSummary(r: VerificationResult): string {
@@ -308,8 +310,8 @@ export function ToolBlock({ tool, isActiveTool = false, isPastTool = false }: { 
   const label = getCleanLabel(tool);
   const showOutput = isComplete && hasSubstantiveOutput(tool);
 
-  // Auto-open the detail card for completed tools with meaningful output
-  const [open, setOpen] = useState(showOutput || isError);
+  // Only auto-open the detail card for errors — output is retracted by default
+  const [open, setOpen] = useState(isError);
 
   const outputLines = tool.output?.split('\n') ?? [];
   const outputValue = outputLines.length > OUTPUT_LINE_LIMIT
@@ -370,7 +372,7 @@ export function ToolBlock({ tool, isActiveTool = false, isPastTool = false }: { 
       {hasCard && open && (
         <div className="ml-5 mt-1 mb-1 rounded-lg border border-white/[0.05] bg-white/[0.015] overflow-hidden">
           {tool.input && <ExpandableRow label="IN" tool={tool} value={tool.input} />}
-          {tool.output && <ExpandableRow label="OUT" tool={tool} value={outputValue || '(no output)'} defaultOpen={showOutput || isError} />}
+          {tool.output && <ExpandableRow label="OUT" tool={tool} value={outputValue || '(no output)'} defaultOpen={isError} />}
           {isRunning && !tool.output && <ExpandableRow label="OUT" tool={tool} value="Running..." />}
         </div>
       )}

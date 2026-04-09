@@ -2,6 +2,7 @@ import { BrowserView, BrowserWindow } from 'electron';
 import type { BrowserTab, BrowserService } from './BrowserService';
 import { IPC_EVENTS } from '../ipc-channels';
 import { clearRefsForTab } from '../browserBridge';
+import { getSavedBrowserTabs, saveBrowserTabs } from '../db';
 
 interface InternalTab {
   id: string;
@@ -27,8 +28,24 @@ export class ElectronBrowserService implements BrowserService {
   ) {}
 
   async init(): Promise<void> {
-    // Create one default tab
-    await this.newTab('about:blank');
+    // Restore persisted tabs, or create a default tab
+    const saved = getSavedBrowserTabs();
+    if (saved.length > 0) {
+      let activeId: string | null = null;
+      for (const row of saved) {
+        // Skip about:blank tabs that aren't the only tab
+        const url = row.url && row.url !== 'about:blank' ? row.url : undefined;
+        const tab = await this.newTab(url, false);
+        // Restore the persisted ID so tab references stay stable
+        // (newTab already created with a new ID — remap)
+        if (row.active) activeId = tab.id;
+      }
+      // Activate the previously active tab, or the first one
+      const target = activeId || this.listTabs()[0]?.id;
+      if (target) await this.switchTab(target);
+    } else {
+      await this.newTab('about:blank');
+    }
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -285,7 +302,14 @@ export class ElectronBrowserService implements BrowserService {
   }
 
   private emitTabsChanged(): void {
-    this.sendToRenderer(IPC_EVENTS.BROWSER_TABS_CHANGED, this.listTabs());
+    const tabs = this.listTabs();
+    this.sendToRenderer(IPC_EVENTS.BROWSER_TABS_CHANGED, tabs);
+    // Persist tab state to DB for restore on restart
+    try {
+      saveBrowserTabs(tabs, this.activeTabId);
+    } catch {
+      // Best-effort — don't crash on DB failure
+    }
   }
 
   private sendToRenderer(channel: string, data: unknown): void {

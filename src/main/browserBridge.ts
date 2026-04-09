@@ -67,6 +67,21 @@ function resolveEffectiveTabId(requestedTabId: string | null, browserService: Br
   return browserService.getActiveTabId();
 }
 
+let bridgeServer: http.Server | null = null;
+
+/** Close the browser bridge HTTP server. Called on app quit. */
+export function closeBrowserBridge(): Promise<void> {
+  return new Promise((resolve) => {
+    if (bridgeServer) {
+      bridgeServer.close(() => resolve());
+      // Force-close after 2 seconds
+      setTimeout(resolve, 2000);
+    } else {
+      resolve();
+    }
+  });
+}
+
 export function startBrowserBridge(browserService: BrowserService, port?: number): void {
   const listenPort = port ?? (Number(process.env.BROWSER_BRIDGE_PORT) || DEFAULT_PORT);
 
@@ -565,6 +580,8 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
       console.error(`[browser-bridge] server error:`, err);
     }
   });
+
+  bridgeServer = server;
 
   server.listen(listenPort, '127.0.0.1', () => {
     console.log(`[browser-bridge] listening on 127.0.0.1:${listenPort}`);
