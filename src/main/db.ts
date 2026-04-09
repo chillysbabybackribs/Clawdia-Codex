@@ -95,6 +95,12 @@ export function initDb(): boolean {
     `);
 
     // Run persistence for auto-resume
+    // Migration: drop legacy runs table (from Clawdia8) that has incompatible schema
+    const runsInfo = db.prepare("PRAGMA table_info(runs)").all() as { name: string }[];
+    if (runsInfo.length > 0 && !runsInfo.some(col => col.name === 'user_text')) {
+      db.exec('DROP TABLE IF EXISTS runs');
+    }
+
     db.exec(`
       CREATE TABLE IF NOT EXISTS runs (
         id                TEXT PRIMARY KEY,
