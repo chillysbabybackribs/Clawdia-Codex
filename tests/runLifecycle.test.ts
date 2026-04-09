@@ -126,7 +126,11 @@ describe('runRegistry', () => {
       expect(RUN_STATUSES).toContain('completed');
       expect(RUN_STATUSES).toContain('failed');
       expect(RUN_STATUSES).toContain('cancelled');
-      expect(RUN_STATUSES).toHaveLength(4);
+      expect(RUN_STATUSES).toHaveLength(5);
+    });
+
+    it('RUN_STATUSES includes interrupted', () => {
+      expect(RUN_STATUSES).toContain('interrupted');
     });
 
     it('run record status is always a valid RunStatus', () => {

@@ -44,7 +44,7 @@ export const IPC_EVENT_NAMES = {
 // ── Run lifecycle ────────────────────────────────────────────────────────────
 
 /** All valid run statuses — shared between production code and tests. */
-export const RUN_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
+export const RUN_STATUSES = ['running', 'completed', 'failed', 'cancelled', 'interrupted'] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 // ── Verification ─────────────────────────────────────────────────────────────
@@ -58,7 +58,9 @@ export type VerificationKind =
   | 'fs:exists'
   | 'fs:modified'
   | 'fs:content_hash'
-  | 'fs:dir_contents';
+  | 'fs:dir_contents'
+  | 'os:window_focused'
+  | 'os:process_running';
 
 /** Confidence in the verification result. */
 export type VerificationConfidence = 'high' | 'medium' | 'low';
@@ -85,6 +87,8 @@ export const VERIFICATION_KINDS: readonly VerificationKind[] = [
   'fs:modified',
   'fs:content_hash',
   'fs:dir_contents',
+  'os:window_focused',
+  'os:process_running',
 ] as const;
 
 /** All valid tool call statuses — shared between production and tests. */
