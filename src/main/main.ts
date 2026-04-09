@@ -1,6 +1,9 @@
 import { app, BrowserWindow } from 'electron';
 import * as path from 'path';
 import { initDb } from './db';
+import { ElectronBrowserService } from './browser/ElectronBrowserService';
+import { registerIpc } from './registerIpc';
+import { startBrowserBridge } from './browserBridge';
 
 const isDev = process.env.NODE_ENV === 'development';
 const isLinux = process.platform === 'linux';
@@ -37,6 +40,12 @@ function createWindow(): BrowserWindow {
 
 async function createAppWindow(): Promise<void> {
   const win = createWindow();
+
+  const userDataPath = app.getPath('userData');
+  const browserService = new ElectronBrowserService(win, userDataPath);
+  await browserService.init();
+  registerIpc(browserService);
+  startBrowserBridge(browserService);
 
   if (isDev) {
     win.loadURL('http://127.0.0.1:5174');
