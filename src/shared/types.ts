@@ -39,6 +39,7 @@ export const IPC_EVENT_NAMES = {
   CHAT_TITLE_UPDATED: 'chat:title-updated',
   CHAT_TOOL_ACTIVITY: 'chat:tool-activity',
   CHAT_VERIFICATION: 'chat:verification',
+  CHAT_RESUME_FAILED: 'chat:resume:failed',
 } as const;
 
 // ── Run lifecycle ────────────────────────────────────────────────────────────

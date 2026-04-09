@@ -3,7 +3,10 @@ import * as path from 'path';
 import { initDb } from './db';
 import { ElectronBrowserService } from './browser/ElectronBrowserService';
 import { registerIpc } from './registerIpc';
-import { startBrowserBridge } from './browserBridge';
+import { startBrowserBridge, closeBrowserBridge } from './browserBridge';
+import { interruptAllRuns } from './runRegistry';
+import { getInterruptedRuns, updateRunStatus } from './db';
+import { resumeInterruptedRuns } from './resumeRuns';
 
 const isDev = process.env.NODE_ENV === 'development';
 const isLinux = process.platform === 'linux';
@@ -59,12 +62,31 @@ app.whenReady().then(async () => {
     console.error('[main] Database initialization failed');
   }
   await createAppWindow();
+  // Resume any interrupted runs from previous session
+  void resumeInterruptedRuns();
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createAppWindow();
     }
   });
+});
+
+app.on('before-quit', async () => {
+  // Interrupt all in-flight Codex runs — abort processes but mark as resumable
+  const interrupted = interruptAllRuns();
+  if (interrupted > 0) {
+    console.log(`[main] interrupted ${interrupted} active run(s) on quit`);
+    // Persist interrupted status to DB
+    const rows = getInterruptedRuns();
+    for (const row of rows) {
+      if (row.status === 'running') {
+        updateRunStatus(row.id, 'interrupted');
+      }
+    }
+  }
+  // Close the browser bridge HTTP server so it doesn't hold the process alive
+  await closeBrowserBridge();
 });
 
 app.on('window-all-closed', () => {
