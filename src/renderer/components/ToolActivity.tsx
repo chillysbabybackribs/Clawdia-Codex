@@ -1,11 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { ToolCall } from '../../shared/types';
-
-interface ToolActivityProps {
-  tools: ToolCall[];
-  isStreaming?: boolean;
-  hasTextAfter?: boolean;
-}
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   shell_exec: 'Bash',
@@ -297,79 +291,3 @@ export function ToolBlock({ tool, isActiveTool = false, isPastTool = false }: { 
   );
 }
 
-const VISIBLE_TAIL = 3;
-const ROW_HEIGHT_PX = 24;
-
-function ToolSummary({ tools }: { tools: ToolCall[] }) {
-  const [open, setOpen] = useState(false);
-  const errorCount = tools.filter(t => t.status === 'error').length;
-  const label = `${tools.length} tool call${tools.length === 1 ? '' : 's'}`;
-
-  return (
-    <div className="tool-summary flex flex-col">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="group flex items-center gap-2 py-[4px] text-left w-full cursor-pointer"
-      >
-        {errorCount > 0 ? (
-          <span className="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center text-white/30">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </span>
-        ) : (
-          <span className="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center text-white/25">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </span>
-        )}
-        <span className="flex-1 text-[12px] text-white/35">
-          {label}{errorCount > 0 ? ` · ${errorCount} error${errorCount === 1 ? '' : 's'}` : ''}
-        </span>
-        <span className="flex-shrink-0 text-[10px] text-white/20 group-hover:text-white/40 transition-colors">
-          {open ? '▾' : '▸'}
-        </span>
-      </button>
-      {open && (
-        <div className="ml-5 mt-1 mb-1 rounded-lg border border-white/[0.05] bg-white/[0.015] overflow-hidden py-1 px-2 flex flex-col">
-          {tools.map(tool => <ToolBlock key={tool.id} tool={tool} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LiveToolActivity({ tools, hasTextAfter }: { tools: ToolCall[]; hasTextAfter?: boolean }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [tools.length]);
-
-  const lastRunningIdx = tools.reduce((acc, t, i) => t.status === 'running' ? i : acc, -1);
-  const activeShimmerIdx = lastRunningIdx >= 0 ? lastRunningIdx : hasTextAfter ? -1 : tools.length - 1;
-  const maxHeight = VISIBLE_TAIL * ROW_HEIGHT_PX;
-  const reservedHeight = Math.min(tools.length, VISIBLE_TAIL) * ROW_HEIGHT_PX;
-
-  return (
-    <div
-      className="tool-activity-live"
-      ref={scrollRef}
-      style={{
-        minHeight: `${reservedHeight}px`,
-        maxHeight: `${maxHeight}px`,
-        overflowY: tools.length > VISIBLE_TAIL ? 'scroll' : 'visible',
-        overflowX: 'hidden',
-        scrollbarWidth: 'none',
-      }}
-    >
-      {tools.map((tool, i) => (
-        <ToolBlock key={tool.id} tool={tool} isActiveTool={i === activeShimmerIdx} isPastTool={activeShimmerIdx >= 0 && i === activeShimmerIdx - 1} />
-      ))}
-    </div>
-  );
-}
-
-export default function ToolActivity({ tools, isStreaming, hasTextAfter }: ToolActivityProps) {
-  if (tools.length === 0) return null;
-  if (!isStreaming) return <ToolSummary tools={tools} />;
-  return <LiveToolActivity tools={tools} hasTextAfter={hasTextAfter} />;
-}

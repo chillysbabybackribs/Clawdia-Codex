@@ -4,7 +4,7 @@ import InputBar from './InputBar';
 import MarkdownRenderer from './MarkdownRenderer';
 import TabStrip from './TabStrip';
 import { ToolBlock as ToolBlockComponent } from './ToolActivity';
-import type { ToolCall, ContentBlock } from '../../shared/types';
+import type { ToolCall } from '../../shared/types';
 import type { ConversationTab } from '../tabLogic';
 
 interface ChatPanelProps {
