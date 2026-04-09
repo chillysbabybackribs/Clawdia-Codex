@@ -11,7 +11,6 @@ const DEFAULT_PORT = 3111;
 
 // Ref ID -> CSS selector map, per tab
 const refMaps = new Map<string, Map<string, string>>();
-let refCounter = 0;
 
 function getRefMap(tabId: string): Map<string, string> {
   if (!refMaps.has(tabId)) refMaps.set(tabId, new Map());
@@ -19,6 +18,11 @@ function getRefMap(tabId: string): Map<string, string> {
 }
 
 function clearRefs(tabId: string): void {
+  refMaps.delete(tabId);
+}
+
+/** Clean up ref storage for a closed tab. Called by ElectronBrowserService. */
+export function clearRefsForTab(tabId: string): void {
   refMaps.delete(tabId);
 }
 
@@ -56,6 +60,13 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 
 // ── Bridge server ────────────────────────────────────────────────────────────
 
+/** Resolve the effective tab ID for ref-scoped operations.
+ *  If an explicit tabId is provided, use it. Otherwise resolve from the active tab. */
+function resolveEffectiveTabId(requestedTabId: string | null, browserService: BrowserService): string | null {
+  if (requestedTabId) return requestedTabId;
+  return browserService.getActiveTabId();
+}
+
 export function startBrowserBridge(browserService: BrowserService, port?: number): void {
   const listenPort = port ?? (Number(process.env.BROWSER_BRIDGE_PORT) || DEFAULT_PORT);
 
@@ -84,7 +95,9 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
         if (win && !win.webContents.isDestroyed()) {
           win.webContents.send(IPC_EVENTS.BROWSER_AUTO_SHOW);
         }
-        return ok(res, { url });
+        // Include tab_id so callers can scope subsequent operations to this tab
+        const navTabIdResult = navTabId || browserService.getActiveTabId();
+        return ok(res, { url, tab_id: navTabIdResult });
       }
 
       if (path === '/back' && method === 'GET') {
@@ -241,11 +254,12 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
         if (!wc) return fail(res, 400, requestedTabId ? `tab not found: ${requestedTabId}` : 'no active tab');
         const interactiveOnly = params.get('interactive_only') !== 'false';
         const maxDepth = parseInt(params.get('max_depth') || '5', 10);
-        const tabId = requestedTabId || '_active';
+        // Always use the real tab ID for ref storage — never '_active'
+        const tabId = resolveEffectiveTabId(requestedTabId, browserService);
+        if (!tabId) return fail(res, 400, 'no active tab');
 
         // Clear existing refs for this tab
         clearRefs(tabId);
-        refCounter = 0;
 
         const rawResults: Array<{
           ref: string;
@@ -328,7 +342,8 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
           return rest;
         });
 
-        return ok(res, { elements });
+        // Include tab_id so callers can pass it to subsequent actions
+        return ok(res, { tab_id: tabId, elements });
       }
 
       // ── Click by ref ────────────────────────────────────────────────
@@ -336,7 +351,8 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
         if (!wc) return fail(res, 400, requestedTabId ? `tab not found: ${requestedTabId}` : 'no active tab');
         const ref = params.get('ref');
         if (!ref) return fail(res, 400, 'missing ?ref= parameter');
-        const tabId = requestedTabId || '_active';
+        const tabId = resolveEffectiveTabId(requestedTabId, browserService);
+        if (!tabId) return fail(res, 400, 'no active tab');
         const selector = resolveRef(tabId, ref);
         if (!selector) return fail(res, 400, `unknown ref: ${ref}`);
         const safeSelector = JSON.stringify(selector);
@@ -354,7 +370,8 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
         const clear = params.get('clear') !== 'false';
         if (!ref) return fail(res, 400, 'missing ?ref= parameter');
         if (text === null) return fail(res, 400, 'missing ?text= parameter');
-        const tabId = requestedTabId || '_active';
+        const tabId = resolveEffectiveTabId(requestedTabId, browserService);
+        if (!tabId) return fail(res, 400, 'no active tab');
         const selector = resolveRef(tabId, ref);
         if (!selector) return fail(res, 400, `unknown ref: ${ref}`);
         const safeSelector = JSON.stringify(selector);
@@ -371,7 +388,8 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
         const direction = params.get('direction') || 'down';
         const amount = parseInt(params.get('amount') || '300', 10);
         const scrollRef = params.get('ref');
-        const tabId = requestedTabId || '_active';
+        const tabId = resolveEffectiveTabId(requestedTabId, browserService);
+        if (!tabId) return fail(res, 400, 'no active tab');
 
         if (scrollRef) {
           const selector = resolveRef(tabId, scrollRef);
@@ -447,7 +465,8 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
         if (!wc) return fail(res, 400, requestedTabId ? `tab not found: ${requestedTabId}` : 'no active tab');
         const description = params.get('description');
         if (!description) return fail(res, 400, 'missing ?description= parameter');
-        const tabId = requestedTabId || '_active';
+        const tabId = resolveEffectiveTabId(requestedTabId, browserService);
+        if (!tabId) return fail(res, 400, 'no active tab');
         const safeDesc = JSON.stringify(description.toLowerCase());
 
         const rawResults: Array<{
@@ -528,7 +547,7 @@ export function startBrowserBridge(browserService: BrowserService, port?: number
           return rest;
         });
 
-        return ok(res, { elements });
+        return ok(res, { tab_id: tabId, elements });
       }
 
       // ── 404 ─────────────────────────────────────────────────────────

@@ -1,7 +1,6 @@
 export const IPC = {
   CHAT_SEND: 'chat:send',
   CHAT_STOP: 'chat:stop',
-  CHAT_NEW: 'chat:new',
   CHAT_CREATE: 'chat:create',
   CHAT_LIST: 'chat:list',
   CHAT_LOAD: 'chat:load',
@@ -30,8 +29,11 @@ export const IPC = {
 export const IPC_EVENTS = {
   CHAT_STREAM_TEXT: 'chat:stream:text',
   CHAT_STREAM_END: 'chat:stream:end',
+  CHAT_RUN_START: 'chat:run:start',
+  CHAT_RUN_END: 'chat:run:end',
   CHAT_TITLE_UPDATED: 'chat:title-updated',
   CHAT_TOOL_ACTIVITY: 'chat:tool-activity',
+  CHAT_VERIFICATION: 'chat:verification',
   BROWSER_URL_CHANGED: 'browser:url-changed',
   BROWSER_TITLE_CHANGED: 'browser:title-changed',
   BROWSER_LOADING: 'browser:loading',

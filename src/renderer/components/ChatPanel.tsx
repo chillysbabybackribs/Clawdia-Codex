@@ -3,8 +3,8 @@ import type { Message, MessageAttachment } from '../../shared/types';
 import InputBar from './InputBar';
 import MarkdownRenderer from './MarkdownRenderer';
 import TabStrip from './TabStrip';
-import { ToolBlock as ToolBlockComponent } from './ToolActivity';
-import type { ToolCall } from '../../shared/types';
+import { ToolBlock as ToolBlockComponent, VerificationBlock } from './ToolActivity';
+import type { ToolCall, VerificationResult } from '../../shared/types';
 import type { ConversationTab } from '../tabLogic';
 
 interface ChatPanelProps {
@@ -186,6 +186,13 @@ const AssistantMessage = React.memo(function AssistantMessage({
                 </div>
               );
             }
+            if (block.type === 'verification') {
+              return (
+                <div key={`verify-${i}`} className="my-0.5">
+                  <VerificationBlock result={block.result} />
+                </div>
+              );
+            }
             // tool block
             return (
               <div key={block.tool.id} className="my-1">
@@ -232,6 +239,7 @@ export default function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamingMsgRef = useRef<Message | null>(null);
   const conversationIdRef = useRef(conversationId);
+  const activeRunIdRef = useRef<string | null>(null);
 
   conversationIdRef.current = conversationId;
 
@@ -319,10 +327,27 @@ export default function ChatPanel({
 
     const unsubEnd = api.onStreamEnd((data: any) => {
       if (data?.conversationId && data.conversationId !== conversationIdRef.current) return;
+      // Mark streaming message as complete (Codex process sent its final text)
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === 'assistant' && last.isStreaming) {
+          return [...prev.slice(0, -1), { ...last, isStreaming: false }];
+        }
+        return prev;
+      });
+    });
 
+    // Explicit run lifecycle — terminal state
+    const unsubRunEnd = api.onRunEnd?.((payload: { runId: string; conversationId: string; status: string; error?: string }) => {
+      if (payload.conversationId !== conversationIdRef.current) return;
+      // Only act if this is the active run
+      if (activeRunIdRef.current && payload.runId !== activeRunIdRef.current) return;
+
+      activeRunIdRef.current = null;
       setIsStreaming(false);
       streamingMsgRef.current = null;
 
+      // Finalize any still-streaming message
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === 'assistant' && last.isStreaming) {
@@ -331,14 +356,14 @@ export default function ChatPanel({
         return prev;
       });
 
-      // Show error as assistant message if present
-      if (data?.error) {
+      // Show error/cancellation detail
+      if (payload.status === 'failed' && payload.error) {
         setMessages((prev) => [
           ...prev,
           {
             id: `error-${Date.now()}`,
             role: 'assistant' as const,
-            content: `**Error:** ${data.error}`,
+            content: `**Error:** ${payload.error}`,
             timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
           },
         ]);
@@ -367,6 +392,21 @@ export default function ChatPanel({
       });
     });
 
+    const unsubVerification = api.onVerification?.((payload: VerificationResult & { conversationId: string }) => {
+      if (payload.conversationId !== conversationIdRef.current) return;
+
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (!last || last.role !== 'assistant') return prev;
+
+        const blocks = [...(last.contentBlocks || [])];
+        blocks.push({ type: 'verification', result: payload });
+        const updated = { ...last, contentBlocks: blocks };
+        streamingMsgRef.current = last.isStreaming ? updated : streamingMsgRef.current;
+        return [...prev.slice(0, -1), updated];
+      });
+    });
+
     const unsubTitle = api.onTitleUpdated?.((payload: { conversationId: string; title: string }) => {
       if (payload.conversationId !== conversationIdRef.current) return;
       onConversationMetaResolved(tabId, { title: payload.title });
@@ -375,7 +415,9 @@ export default function ChatPanel({
     return () => {
       unsubText?.();
       unsubEnd?.();
+      unsubRunEnd?.();
       unsubTool?.();
+      unsubVerification?.();
       unsubTitle?.();
     };
   }, [tabId, onConversationMetaResolved]);
@@ -387,6 +429,15 @@ export default function ChatPanel({
   ) => {
     const api = (window as any).clawdia;
     if (!api) return;
+
+    // Ensure conversationId exists BEFORE send so streaming events match immediately
+    let activeConversationId = conversationId;
+    if (!activeConversationId) {
+      activeConversationId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      setConversationId(activeConversationId);
+      conversationIdRef.current = activeConversationId;
+      onConversationMetaResolved(tabId, { conversationId: activeConversationId });
+    }
 
     // Add user message to UI
     const userMsg: Message = {
@@ -401,22 +452,24 @@ export default function ChatPanel({
     setTimeout(scrollToBottom, 50);
 
     try {
-      const result = await api.chat.send(text, attachments, conversationId, tier);
-      if (result?.conversationId && !conversationId) {
-        setConversationId(result.conversationId);
-        onConversationMetaResolved(tabId, { conversationId: result.conversationId });
+      // chat.send now returns immediately with { ok, conversationId, runId }
+      const result = await api.chat.send(text, attachments, activeConversationId, tier);
+      if (result?.runId) {
+        activeRunIdRef.current = result.runId;
       }
+      // Streaming state and terminal state are handled by onRunEnd — not here
     } catch (err) {
       console.error('Send failed:', err);
       setIsStreaming(false);
+      activeRunIdRef.current = null;
     }
   }, [conversationId, tabId, onConversationMetaResolved, scrollToBottom]);
 
   const handleStop = useCallback(() => {
     const api = (window as any).clawdia;
-    if (!api) return;
-    api.chat.stop(conversationId ?? undefined);
-  }, [conversationId]);
+    if (!api || !activeRunIdRef.current) return;
+    api.chat.stop(activeRunIdRef.current);
+  }, []);
 
   const isEmpty = messages.length === 0 && !isStreaming;
 

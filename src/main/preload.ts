@@ -26,8 +26,7 @@ try {
     chat: {
       send: (message: string, attachments?: any[], conversationId?: string | null, tier?: string) =>
         ipcRenderer.invoke(IPC.CHAT_SEND, { text: message, attachments, conversationId, tier }),
-      stop: (conversationId?: string) => ipcRenderer.invoke(IPC.CHAT_STOP, conversationId),
-      new: () => ipcRenderer.invoke(IPC.CHAT_NEW),
+      stop: (runId: string) => ipcRenderer.invoke(IPC.CHAT_STOP, runId),
       create: () => ipcRenderer.invoke(IPC.CHAT_CREATE),
       list: () => ipcRenderer.invoke(IPC.CHAT_LIST),
       load: (id: string) => ipcRenderer.invoke(IPC.CHAT_LOAD, id),
@@ -36,10 +35,16 @@ try {
         onEvent(IPC_EVENTS.CHAT_STREAM_TEXT, cb),
       onStreamEnd: (cb: (data: any) => void) =>
         onEvent(IPC_EVENTS.CHAT_STREAM_END, cb),
+      onRunStart: (cb: (payload: { runId: string; conversationId: string }) => void) =>
+        onEvent(IPC_EVENTS.CHAT_RUN_START, cb),
+      onRunEnd: (cb: (payload: { runId: string; conversationId: string; status: string; error?: string }) => void) =>
+        onEvent(IPC_EVENTS.CHAT_RUN_END, cb),
       onTitleUpdated: (cb: (payload: { conversationId: string; title: string }) => void) =>
         onEvent(IPC_EVENTS.CHAT_TITLE_UPDATED, cb),
       onToolActivity: (cb: (payload: any) => void) =>
         onEvent(IPC_EVENTS.CHAT_TOOL_ACTIVITY, cb),
+      onVerification: (cb: (payload: any) => void) =>
+        onEvent(IPC_EVENTS.CHAT_VERIFICATION, cb),
     },
     browser: {
       navigate: (url: string) => ipcRenderer.invoke(IPC.BROWSER_NAVIGATE, url),

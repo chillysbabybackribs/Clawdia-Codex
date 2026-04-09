@@ -1,6 +1,7 @@
 import { BrowserView, BrowserWindow } from 'electron';
 import type { BrowserTab, BrowserService } from './BrowserService';
 import { IPC_EVENTS } from '../ipc-channels';
+import { clearRefsForTab } from '../browserBridge';
 
 interface InternalTab {
   id: string;
@@ -130,6 +131,9 @@ export class ElectronBrowserService implements BrowserService {
     const tab = this.tabs.get(id);
     if (!tab) return;
 
+    // Clean up ref storage for this tab
+    clearRefsForTab(id);
+
     // Detach if currently shown
     if (this.window.getBrowserView() === tab.view) {
       this.window.setBrowserView(null);
@@ -157,6 +161,10 @@ export class ElectronBrowserService implements BrowserService {
 
   getActiveWebContents(): Electron.WebContents | null {
     return this.getActiveTab()?.view.webContents ?? null;
+  }
+
+  getActiveTabId(): string | null {
+    return this.activeTabId;
   }
 
   getWebContentsByTabId(tabId: string): Electron.WebContents | null {

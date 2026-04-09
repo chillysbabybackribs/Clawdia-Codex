@@ -6,10 +6,7 @@ import type { ElectronBrowserService } from './browser/ElectronBrowserService';
 import { streamCodexChat } from './codex/codexChat';
 import { getTierModel } from '../shared/models';
 import type { Tier } from '../shared/models';
-
-// In-memory session message history per conversation
-const sessionMessages = new Map<string, any[]>();
-const activeAbortControllers = new Map<string, AbortController>();
+import { generateRunId, createRun, getRun, cancelRun, completeRun, removeRun } from './runRegistry';
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -26,58 +23,100 @@ export function registerIpc(browserService: ElectronBrowserService): void {
     const model = getTierModel(tier);
     const db = getDb();
 
-    let conversationId = reqConvId;
-    if (!conversationId) {
-      conversationId = generateId();
-      db.prepare('INSERT INTO conversations (id, title) VALUES (?, ?)').run(conversationId, 'New Chat');
-    }
+    // Client always provides conversationId (generated client-side for new chats)
+    const conversationId = reqConvId || generateId();
+
+    // Ensure conversation row exists (INSERT OR IGNORE for idempotency)
+    db.prepare('INSERT OR IGNORE INTO conversations (id, title) VALUES (?, ?)').run(conversationId, 'New Chat');
 
     const userMsgId = generateId();
     db.prepare('INSERT INTO messages (id, conversation_id, role, content, attachments_json) VALUES (?, ?, ?, ?, ?)')
       .run(userMsgId, conversationId, 'user', text, attachments ? JSON.stringify(attachments) : null);
 
-    const abortController = new AbortController();
-    activeAbortControllers.set(conversationId, abortController);
+    // Create a tracked run — returns immediately to the renderer
+    const runId = generateRunId();
+    const run = createRun(runId, conversationId);
 
     const w = win();
-    const result = await streamCodexChat({
-      webContents: w.webContents,
-      userText: text,
-      model,
-      conversationId,
-      signal: abortController.signal,
-    });
+    const wc = w.webContents;
 
-    activeAbortControllers.delete(conversationId);
-
-    if (result.response) {
-      const assistantMsgId = generateId();
-      db.prepare('INSERT INTO messages (id, conversation_id, role, content, content_blocks_json) VALUES (?, ?, ?, ?, ?)')
-        .run(assistantMsgId, conversationId, 'assistant', result.response, JSON.stringify(result.contentBlocks));
+    // Emit explicit run-start lifecycle event
+    if (!wc.isDestroyed()) {
+      wc.send(IPC_EVENTS.CHAT_RUN_START, { runId, conversationId });
     }
 
-    db.prepare("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(conversationId);
-    const msgCount = (db.prepare('SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = ?').get(conversationId) as any)?.cnt;
-    if (msgCount <= 2) {
-      const title = text.length > 60 ? text.slice(0, 57) + '...' : text;
-      db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId);
-      if (!w.webContents.isDestroyed()) {
-        w.webContents.send(IPC_EVENTS.CHAT_TITLE_UPDATED, { conversationId, title });
+    // Run Codex asynchronously — do NOT await here
+    void (async () => {
+      try {
+        const result = await streamCodexChat({
+          webContents: wc,
+          userText: text,
+          model,
+          conversationId,
+          signal: run.abort.signal,
+        });
+
+        // Check if we were cancelled during execution
+        if (run.status === 'cancelled') {
+          // Don't persist — run was cancelled
+          if (!wc.isDestroyed()) {
+            wc.send(IPC_EVENTS.CHAT_RUN_END, { runId, conversationId, status: 'cancelled' });
+          }
+          removeRun(runId);
+          return;
+        }
+
+        // Persist assistant message
+        if (result.response) {
+          const assistantMsgId = generateId();
+          db.prepare('INSERT INTO messages (id, conversation_id, role, content, content_blocks_json) VALUES (?, ?, ?, ?, ?)')
+            .run(assistantMsgId, conversationId, 'assistant', result.response, JSON.stringify(result.contentBlocks));
+        }
+
+        db.prepare("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(conversationId);
+        const msgCount = (db.prepare('SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = ?').get(conversationId) as any)?.cnt;
+        if (msgCount <= 2) {
+          const title = text.length > 60 ? text.slice(0, 57) + '...' : text;
+          db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId);
+          if (!wc.isDestroyed()) {
+            wc.send(IPC_EVENTS.CHAT_TITLE_UPDATED, { conversationId, title });
+          }
+        }
+
+        if (result.error) {
+          completeRun(runId, 'failed', result.error);
+          if (!wc.isDestroyed()) {
+            wc.send(IPC_EVENTS.CHAT_RUN_END, { runId, conversationId, status: 'failed', error: result.error });
+          }
+        } else {
+          completeRun(runId, 'completed');
+          if (!wc.isDestroyed()) {
+            wc.send(IPC_EVENTS.CHAT_RUN_END, { runId, conversationId, status: 'completed' });
+          }
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        completeRun(runId, 'failed', message);
+        if (!wc.isDestroyed()) {
+          wc.send(IPC_EVENTS.CHAT_RUN_END, { runId, conversationId, status: 'failed', error: message });
+        }
+      } finally {
+        // Deferred cleanup — give events time to propagate
+        setTimeout(() => removeRun(runId), 5000);
       }
-    }
+    })();
 
-    return { ok: true, conversationId, response: result.response, error: result.error };
+    // Return immediately — run is in flight
+    return { ok: true, conversationId, runId };
   });
 
-  ipcMain.handle(IPC.CHAT_STOP, async (_event, conversationId) => {
-    const ctrl = activeAbortControllers.get(conversationId);
-    if (ctrl) ctrl.abort();
-  });
-
-  ipcMain.handle(IPC.CHAT_NEW, async () => {
-    const id = generateId();
-    getDb().prepare('INSERT INTO conversations (id, title) VALUES (?, ?)').run(id, 'New Chat');
-    return { id, title: 'New Chat' };
+  ipcMain.handle(IPC.CHAT_STOP, async (_event, runId: string) => {
+    if (!runId) return { ok: false, error: 'missing runId' };
+    const run = getRun(runId);
+    if (!run) return { ok: false, error: 'run not found' };
+    if (run.status !== 'running') return { ok: false, error: `run already ${run.status}` };
+    const cancelled = cancelRun(runId);
+    return { ok: cancelled };
   });
 
   ipcMain.handle(IPC.CHAT_CREATE, async () => {
@@ -105,7 +144,6 @@ export function registerIpc(browserService: ElectronBrowserService): void {
 
   ipcMain.handle(IPC.CHAT_DELETE, async (_event, id) => {
     getDb().prepare('DELETE FROM conversations WHERE id = ?').run(id);
-    sessionMessages.delete(id);
   });
 
   // ── Settings ──────────────────────────────────────────────────────────────

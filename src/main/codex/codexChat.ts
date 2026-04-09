@@ -3,7 +3,8 @@ import path from 'path';
 import type { WebContents } from 'electron';
 import { IPC_EVENTS } from '../ipc-channels';
 import { getConversation, updateConversation } from '../db';
-import type { ToolCall, ContentBlock } from '../../shared/types';
+import type { ToolCall, ContentBlock, VerificationResult } from '../../shared/types';
+import { captureFileSnapshot, diffFileSnapshots } from '../verification/fsVerify';
 
 /** Path to the scripts directory containing the browser CLI wrapper.
  *  At runtime __dirname is dist/main/codex/ — three levels up to project root. */
@@ -176,6 +177,42 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
       }
     }
 
+    function emitVerification(result: VerificationResult) {
+      if (!webContents.isDestroyed()) {
+        webContents.send(IPC_EVENTS.CHAT_VERIFICATION, { ...result, conversationId });
+      }
+      contentBlocks.push({ type: 'verification', result });
+    }
+
+    /** Extract file path from a tool item's input fields. */
+    function extractFilePath(itemRecord: Record<string, unknown>): string | null {
+      for (const key of ['path', 'file_path', 'file', 'target']) {
+        const val = itemRecord[key];
+        if (typeof val === 'string' && val.startsWith('/')) return val;
+      }
+      // Check nested arguments
+      const args = itemRecord.arguments ?? itemRecord.args;
+      if (args && typeof args === 'object' && !Array.isArray(args)) {
+        const a = args as Record<string, unknown>;
+        for (const key of ['path', 'file_path', 'file', 'target']) {
+          const val = a[key];
+          if (typeof val === 'string' && val.startsWith('/')) return val;
+        }
+      }
+      return null;
+    }
+
+    /** Determine if this tool is a filesystem-modifying tool. */
+    function isFsWriteTool(itemType: string, itemRecord: Record<string, unknown>): boolean {
+      const writeTypes = ['file_write', 'file_edit', 'command_execution', 'function_call'];
+      if (writeTypes.includes(itemType)) return true;
+      const cmd = typeof itemRecord.command === 'string' ? itemRecord.command : '';
+      return /\b(write|create|mkdir|touch|mv|cp|rm|echo\s+.*>|cat\s+.*>|sed\s+-i|tee)\b/.test(cmd);
+    }
+
+    // Pre-capture filesystem snapshots for write tools
+    const fsPreSnapshots = new Map<string, ReturnType<typeof captureFileSnapshot>>();
+
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
@@ -255,6 +292,12 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
             },
           });
 
+          // Pre-capture filesystem state for write tools
+          if (isFsWriteTool(itemType, itemRecord)) {
+            const fp = extractFilePath(itemRecord);
+            if (fp) fsPreSnapshots.set(itemId, captureFileSnapshot(fp));
+          }
+
           // Check for browser mirror
           const mirrorUrl = detectMirrorUrl(itemRecord);
           if (mirrorUrl && !webContents.isDestroyed()) {
@@ -311,6 +354,15 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
               output: codexItemOutput(itemRecord),
               durationMs: pending ? Date.now() - pending.startedAt : undefined,
             };
+          }
+
+          // Post-action filesystem verification
+          const preSnap = fsPreSnapshots.get(itemId);
+          if (preSnap) {
+            fsPreSnapshots.delete(itemId);
+            const postSnap = captureFileSnapshot(preSnap.path);
+            const verifications = diffFileSnapshots(preSnap, postSnap);
+            for (const v of verifications) emitVerification(v);
           }
 
           // Tool completed that had a mirror URL — emit BROWSER_MIRROR_DONE

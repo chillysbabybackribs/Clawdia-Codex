@@ -22,6 +22,8 @@ export interface BrowserService {
   hide(): void;
   show(): void;
   getActiveWebContents(): WebContents | null;
+  /** Get the active tab's ID. Returns null if no active tab. */
+  getActiveTabId(): string | null;
   /** Get WebContents for a specific tab by ID. Returns null if tab not found. */
   getWebContentsByTabId?(tabId: string): WebContents | null;
 }
