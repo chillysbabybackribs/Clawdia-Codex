@@ -68,6 +68,13 @@ export function initDb(): boolean {
       CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
     `);
 
+    // Migration: ensure codex_thread_id column exists (handles pre-existing databases)
+    try {
+      db.exec(`ALTER TABLE conversations ADD COLUMN codex_thread_id TEXT`);
+    } catch {
+      // Column already exists — ignore
+    }
+
     return true;
   } catch (err) {
     console.error('[db] init failed:', err);
