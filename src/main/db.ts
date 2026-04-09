@@ -75,6 +75,13 @@ export function initDb(): boolean {
       // Column already exists — ignore
     }
 
+    // Migration: ensure content_blocks_json column exists
+    try {
+      db.exec(`ALTER TABLE messages ADD COLUMN content_blocks_json TEXT`);
+    } catch {
+      // Column already exists — ignore
+    }
+
     return true;
   } catch (err) {
     console.error('[db] init failed:', err);
