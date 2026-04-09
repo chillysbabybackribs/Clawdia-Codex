@@ -3,8 +3,8 @@ import type { Message, MessageAttachment } from '../../shared/types';
 import InputBar from './InputBar';
 import MarkdownRenderer from './MarkdownRenderer';
 import TabStrip from './TabStrip';
-import ToolActivity from './ToolActivity';
-import type { ToolCall } from '../../shared/types';
+import { ToolBlock as ToolBlockComponent } from './ToolActivity';
+import type { ToolCall, ContentBlock } from '../../shared/types';
 import type { ConversationTab } from '../tabLogic';
 
 interface ChatPanelProps {
@@ -147,11 +147,52 @@ const AssistantMessage = React.memo(function AssistantMessage({
 }: {
   message: Message;
 }) {
+  const blocks = message.contentBlocks;
+
+  // Fallback for legacy messages without content blocks
+  if (!blocks || blocks.length === 0) {
+    return (
+      <div className="assistant-message flex justify-start animate-slide-up group">
+        <div className="assistant-message-body max-w-[92%] px-1 py-2 text-text-primary">
+          <div className={`stream-response-container ${message.isStreaming ? 'is-streaming' : 'is-complete'}`}>
+            <MarkdownRenderer content={message.content} isStreaming={message.isStreaming} />
+          </div>
+          <div className="mt-1 flex items-center gap-1">
+            {!message.isStreaming && message.content && <CopyButton text={message.content} />}
+            <span className="text-[11px] text-text-secondary/70">{message.timestamp}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const lastTextBlockIdx = blocks.reduce(
+    (acc, b, i) => (b.type === 'text' ? i : acc), -1,
+  );
+
   return (
     <div className="assistant-message flex justify-start animate-slide-up group">
       <div className="assistant-message-body max-w-[92%] px-1 py-2 text-text-primary">
         <div className={`stream-response-container ${message.isStreaming ? 'is-streaming' : 'is-complete'}`}>
-          <MarkdownRenderer content={message.content} isStreaming={message.isStreaming} />
+          {blocks.map((block, i) => {
+            if (block.type === 'text') {
+              const isLastTextAndStreaming = message.isStreaming && i === lastTextBlockIdx;
+              return (
+                <div key={`text-${i}`}>
+                  <MarkdownRenderer
+                    content={block.content}
+                    isStreaming={isLastTextAndStreaming}
+                  />
+                </div>
+              );
+            }
+            // tool block
+            return (
+              <div key={block.tool.id} className="my-1">
+                <ToolBlockComponent tool={block.tool} />
+              </div>
+            );
+          })}
         </div>
         <div className="mt-1 flex items-center gap-1">
           {!message.isStreaming && message.content && <CopyButton text={message.content} />}
@@ -187,7 +228,6 @@ export default function ChatPanel({
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(loadConversationId ?? null);
   const [historyMode, setHistoryMode] = useState(false);
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamingMsgRef = useRef<Message | null>(null);
@@ -248,7 +288,18 @@ export default function ChatPanel({
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === 'assistant' && last.isStreaming) {
-          const updated = { ...last, content: last.content + payload.delta };
+          const blocks = [...(last.contentBlocks || [])];
+          const lastBlock = blocks[blocks.length - 1];
+          if (lastBlock?.type === 'text') {
+            blocks[blocks.length - 1] = { ...lastBlock, content: lastBlock.content + payload.delta };
+          } else {
+            blocks.push({ type: 'text', content: payload.delta });
+          }
+          const updated = {
+            ...last,
+            content: last.content + payload.delta,
+            contentBlocks: blocks,
+          };
           streamingMsgRef.current = updated;
           return [...prev.slice(0, -1), updated];
         }
@@ -257,6 +308,7 @@ export default function ChatPanel({
           id: `stream-${Date.now()}`,
           role: 'assistant',
           content: payload.delta,
+          contentBlocks: [{ type: 'text', content: payload.delta }],
           timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
           isStreaming: true,
         };
@@ -295,14 +347,23 @@ export default function ChatPanel({
 
     const unsubTool = api.onToolActivity?.((payload: ToolCall & { conversationId: string }) => {
       if (payload.conversationId !== conversationIdRef.current) return;
-      setToolCalls((prev) => {
-        const idx = prev.findIndex(t => t.id === payload.id);
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = payload;
-          return updated;
+
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (!last || last.role !== 'assistant') return prev;
+
+        const blocks = [...(last.contentBlocks || [])];
+        const existingIdx = blocks.findIndex(
+          (b) => b.type === 'tool' && b.tool.id === payload.id,
+        );
+        if (existingIdx >= 0) {
+          blocks[existingIdx] = { type: 'tool', tool: payload };
+        } else {
+          blocks.push({ type: 'tool', tool: payload });
         }
-        return [...prev, payload];
+        const updated = { ...last, contentBlocks: blocks };
+        streamingMsgRef.current = last.isStreaming ? updated : streamingMsgRef.current;
+        return [...prev.slice(0, -1), updated];
       });
     });
 
@@ -326,8 +387,6 @@ export default function ChatPanel({
   ) => {
     const api = (window as any).clawdia;
     if (!api) return;
-
-    setToolCalls([]);
 
     // Add user message to UI
     const userMsg: Message = {
@@ -411,17 +470,6 @@ export default function ChatPanel({
               </div>
             );
           })}
-
-          {/* Tool activity feed */}
-          {toolCalls.length > 0 && (
-            <div className="mb-4 px-1">
-              <ToolActivity
-                tools={toolCalls}
-                isStreaming={isStreaming}
-                hasTextAfter={messages.length > 0 && messages[messages.length - 1]?.role === 'assistant'}
-              />
-            </div>
-          )}
 
           {/* Streaming shimmer when waiting for first token */}
           {isStreaming && messages.length > 0 && messages[messages.length - 1]?.role === 'user' && (
