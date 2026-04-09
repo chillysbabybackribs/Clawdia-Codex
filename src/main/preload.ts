@@ -45,6 +45,10 @@ try {
         onEvent(IPC_EVENTS.CHAT_TOOL_ACTIVITY, cb),
       onVerification: (cb: (payload: any) => void) =>
         onEvent(IPC_EVENTS.CHAT_VERIFICATION, cb),
+      onResumeFailed: (cb: (payload: { runId: string; conversationId: string; error: string; attempts: number }) => void) =>
+        onEvent(IPC_EVENTS.CHAT_RESUME_FAILED, cb),
+      resumeRetry: (runId: string) => ipcRenderer.invoke(IPC.CHAT_RESUME_RETRY, runId),
+      resumeDismiss: (runId: string) => ipcRenderer.invoke(IPC.CHAT_RESUME_DISMISS, runId),
     },
     browser: {
       navigate: (url: string) => ipcRenderer.invoke(IPC.BROWSER_NAVIGATE, url),

@@ -134,6 +134,19 @@ export function registerIpc(browserService: ElectronBrowserService): void {
     return { ok: cancelled };
   });
 
+  ipcMain.handle(IPC.CHAT_RESUME_RETRY, async (_event, runId: string) => {
+    if (!runId) return { ok: false, error: 'missing runId' };
+    const { resumeSingleRunById } = await import('./resumeRuns');
+    const result = await resumeSingleRunById(runId);
+    return { ok: result };
+  });
+
+  ipcMain.handle(IPC.CHAT_RESUME_DISMISS, async (_event, runId: string) => {
+    if (!runId) return { ok: false, error: 'missing runId' };
+    updateRunStatus(runId, 'failed', 'Dismissed by user');
+    return { ok: true };
+  });
+
   ipcMain.handle(IPC.CHAT_CREATE, async () => {
     const id = generateId();
     getDb().prepare('INSERT INTO conversations (id, title) VALUES (?, ?)').run(id, 'New Chat');
