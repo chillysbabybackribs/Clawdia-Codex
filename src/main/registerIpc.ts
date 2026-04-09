@@ -3,6 +3,9 @@ import { IPC, IPC_EVENTS } from './ipc-channels';
 import { getDb } from './db';
 import { loadSettings, patchSettings, getSetting } from './settingsStore';
 import type { ElectronBrowserService } from './browser/ElectronBrowserService';
+import { streamCodexChat } from './codex/codexChat';
+import { getTierModel } from '../shared/models';
+import type { Tier } from '../shared/models';
 
 // In-memory session message history per conversation
 const sessionMessages = new Map<string, any[]>();
@@ -18,23 +21,52 @@ export function registerIpc(browserService: ElectronBrowserService): void {
   // ── Chat ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle(IPC.CHAT_SEND, async (_event, payload) => {
-    const { text, conversationId: reqConvId } = payload;
+    const { text, attachments, conversationId: reqConvId, tier: reqTier } = payload;
+    const tier = (reqTier || getSetting('tier')) as Tier;
+    const model = getTierModel(tier);
     const db = getDb();
+
     let conversationId = reqConvId;
     if (!conversationId) {
       conversationId = generateId();
       db.prepare('INSERT INTO conversations (id, title) VALUES (?, ?)').run(conversationId, 'New Chat');
     }
+
     const userMsgId = generateId();
     db.prepare('INSERT INTO messages (id, conversation_id, role, content, attachments_json) VALUES (?, ?, ?, ?, ?)')
-      .run(userMsgId, conversationId, 'user', text, null);
-    // TODO: Wire up streamCodexChat in Task 7
+      .run(userMsgId, conversationId, 'user', text, attachments ? JSON.stringify(attachments) : null);
+
+    const abortController = new AbortController();
+    activeAbortControllers.set(conversationId, abortController);
+
     const w = win();
-    if (w && !w.webContents.isDestroyed()) {
-      w.webContents.send(IPC_EVENTS.CHAT_STREAM_TEXT, { delta: '[Codex not yet connected]', conversationId });
-      w.webContents.send(IPC_EVENTS.CHAT_STREAM_END, { ok: true, conversationId });
+    const result = await streamCodexChat({
+      webContents: w.webContents,
+      userText: text,
+      model,
+      conversationId,
+      signal: abortController.signal,
+    });
+
+    activeAbortControllers.delete(conversationId);
+
+    if (result.response) {
+      const assistantMsgId = generateId();
+      db.prepare('INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)')
+        .run(assistantMsgId, conversationId, 'assistant', result.response);
     }
-    return { ok: true, conversationId };
+
+    db.prepare("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(conversationId);
+    const msgCount = (db.prepare('SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = ?').get(conversationId) as any)?.cnt;
+    if (msgCount <= 2) {
+      const title = text.length > 60 ? text.slice(0, 57) + '...' : text;
+      db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId);
+      if (!w.webContents.isDestroyed()) {
+        w.webContents.send(IPC_EVENTS.CHAT_TITLE_UPDATED, { conversationId, title });
+      }
+    }
+
+    return { ok: true, conversationId, response: result.response, error: result.error };
   });
 
   ipcMain.handle(IPC.CHAT_STOP, async (_event, conversationId) => {
