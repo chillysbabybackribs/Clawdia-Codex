@@ -52,8 +52,8 @@ export function registerIpc(browserService: ElectronBrowserService): void {
 
     if (result.response) {
       const assistantMsgId = generateId();
-      db.prepare('INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)')
-        .run(assistantMsgId, conversationId, 'assistant', result.response);
+      db.prepare('INSERT INTO messages (id, conversation_id, role, content, content_blocks_json) VALUES (?, ?, ?, ?, ?)')
+        .run(assistantMsgId, conversationId, 'assistant', result.response, JSON.stringify(result.contentBlocks));
     }
 
     db.prepare("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(conversationId);
@@ -92,12 +92,14 @@ export function registerIpc(browserService: ElectronBrowserService): void {
 
   ipcMain.handle(IPC.CHAT_LOAD, async (_event, id) => {
     const messages = getDb().prepare(
-      'SELECT id, role, content, created_at as timestamp, attachments_json FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
+      'SELECT id, role, content, created_at as timestamp, attachments_json, content_blocks_json FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
     ).all(id) as any[];
     return messages.map(m => ({
       ...m,
       attachments: m.attachments_json ? JSON.parse(m.attachments_json) : undefined,
       attachments_json: undefined,
+      contentBlocks: m.content_blocks_json ? JSON.parse(m.content_blocks_json) : undefined,
+      content_blocks_json: undefined,
     }));
   });
 

@@ -3,7 +3,7 @@ import path from 'path';
 import type { WebContents } from 'electron';
 import { IPC_EVENTS } from '../ipc-channels';
 import { getConversation, updateConversation } from '../db';
-import type { ToolCall } from '../../shared/types';
+import type { ToolCall, ContentBlock } from '../../shared/types';
 
 /** Path to the scripts directory containing the browser CLI wrapper.
  *  At runtime __dirname is dist/main/codex/ — three levels up to project root. */
@@ -109,7 +109,7 @@ For complex browser tasks, use the MCP browser tools:
 
 Use \`browser page-text\` first to read page content. Use \`browser_snapshot\` before interacting with elements.`;
 
-export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: string; error?: string }> {
+export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: string; contentBlocks: ContentBlock[]; error?: string }> {
   const { webContents, userText, model, conversationId, signal } = opts;
   const codexBin = process.env.CODEX_BIN || 'codex';
 
@@ -154,6 +154,7 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
     let stderr = '';
     const pendingActivities = new Map<string, { name: string; detail: string; input: string; startedAt: number }>();
     const streamedTextByItemId = new Map<string, string>();
+    const contentBlocks: ContentBlock[] = [];
 
     const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
     let hangTimeout = setTimeout(() => {
@@ -219,6 +220,13 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
               webContents.send(IPC_EVENTS.CHAT_STREAM_TEXT, { delta, conversationId });
             }
             streamedTextByItemId.set(itemId, nextText);
+            // Track in content blocks
+            const lastBlock = contentBlocks[contentBlocks.length - 1];
+            if (lastBlock?.type === 'text') {
+              lastBlock.content += delta;
+            } else {
+              contentBlocks.push({ type: 'text', content: delta });
+            }
           }
         }
 
@@ -233,6 +241,16 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
             status: 'running',
             detail,
             input,
+          });
+          contentBlocks.push({
+            type: 'tool',
+            tool: {
+              id: itemId,
+              name: codexItemToolName(itemType),
+              status: 'running',
+              detail,
+              input,
+            },
           });
 
           // Check for browser mirror
@@ -256,6 +274,13 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
               webContents.send(IPC_EVENTS.CHAT_STREAM_TEXT, { delta: remainder, conversationId });
             }
             streamedTextByItemId.set(itemId, text);
+            // Track in content blocks
+            const lastBlock = contentBlocks[contentBlocks.length - 1];
+            if (lastBlock?.type === 'text') {
+              lastBlock.content += remainder;
+            } else if (remainder) {
+              contentBlocks.push({ type: 'text', content: remainder });
+            }
             continue;
           }
           if (itemType === 'reasoning') continue;
@@ -271,6 +296,20 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
             output: codexItemOutput(itemRecord),
             durationMs: pending ? Date.now() - pending.startedAt : undefined,
           });
+          const toolBlockIdx = contentBlocks.findIndex(
+            (b) => b.type === 'tool' && b.tool.id === itemId,
+          );
+          if (toolBlockIdx >= 0) {
+            (contentBlocks[toolBlockIdx] as { type: 'tool'; tool: ToolCall }).tool = {
+              id: itemId,
+              name: pending?.name ?? codexItemToolName(itemType),
+              status: 'success',
+              detail: pending?.detail ?? codexItemDetail(itemRecord),
+              input: pending?.input ?? JSON.stringify(codexItemInput(itemRecord), null, 2),
+              output: codexItemOutput(itemRecord),
+              durationMs: pending ? Date.now() - pending.startedAt : undefined,
+            };
+          }
 
           // Tool completed that had a mirror URL — emit BROWSER_MIRROR_DONE
           if (!webContents.isDestroyed()) {
@@ -293,6 +332,20 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
             output: codexItemOutput(itemRecord),
             durationMs: pending ? Date.now() - pending.startedAt : undefined,
           });
+          const toolBlockIdx = contentBlocks.findIndex(
+            (b) => b.type === 'tool' && b.tool.id === itemId,
+          );
+          if (toolBlockIdx >= 0) {
+            (contentBlocks[toolBlockIdx] as { type: 'tool'; tool: ToolCall }).tool = {
+              id: itemId,
+              name: pending?.name ?? codexItemToolName(itemType),
+              status: 'error',
+              detail: pending?.detail ?? codexItemDetail(itemRecord),
+              input: pending?.input ?? JSON.stringify(codexItemInput(itemRecord), null, 2),
+              output: codexItemOutput(itemRecord),
+              durationMs: pending ? Date.now() - pending.startedAt : undefined,
+            };
+          }
         }
       }
     });
@@ -323,7 +376,7 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
       }
 
       if (code !== 0) {
-        resolve({ response: finalText, error: `Codex exited with code ${code}. ${stderr.slice(0, 500)}` });
+        resolve({ response: finalText, contentBlocks, error: `Codex exited with code ${code}. ${stderr.slice(0, 500)}` });
         return;
       }
 
@@ -332,7 +385,7 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
         updateConversation(conversationId, { codex_thread_id: resolvedSessionId });
       }
 
-      resolve({ response: finalText });
+      resolve({ response: finalText, contentBlocks });
     });
   });
 }
