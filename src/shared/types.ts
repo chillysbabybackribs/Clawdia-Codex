@@ -13,6 +13,7 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  contentBlocks?: ContentBlock[];
   timestamp: string;
   attachments?: MessageAttachment[];
   isStreaming?: boolean;
@@ -27,6 +28,18 @@ export interface ToolCall {
   output?: string;
   durationMs?: number;
 }
+
+export interface TextBlock {
+  type: 'text';
+  content: string;
+}
+
+export interface ToolContentBlock {
+  type: 'tool';
+  tool: ToolCall;
+}
+
+export type ContentBlock = TextBlock | ToolContentBlock;
 
 export interface Conversation {
   id: string;
