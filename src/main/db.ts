@@ -17,6 +17,7 @@ export interface MessageRow {
   content: string;
   created_at: string;
   attachments_json?: string;
+  content_blocks_json?: string;
 }
 
 let db: Database.Database | null = null;

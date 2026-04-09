@@ -216,17 +216,19 @@ export function streamCodexChat(opts: StreamCodexChatOpts): Promise<{ response: 
           if (nextText) {
             const priorText = streamedTextByItemId.get(itemId) ?? '';
             const delta = nextText.startsWith(priorText) ? nextText.slice(priorText.length) : nextText;
-            if (delta && !webContents.isDestroyed()) {
-              webContents.send(IPC_EVENTS.CHAT_STREAM_TEXT, { delta, conversationId });
+            if (delta) {
+              if (!webContents.isDestroyed()) {
+                webContents.send(IPC_EVENTS.CHAT_STREAM_TEXT, { delta, conversationId });
+              }
+              // Track in content blocks
+              const lastBlock = contentBlocks[contentBlocks.length - 1];
+              if (lastBlock?.type === 'text') {
+                lastBlock.content += delta;
+              } else {
+                contentBlocks.push({ type: 'text', content: delta });
+              }
             }
             streamedTextByItemId.set(itemId, nextText);
-            // Track in content blocks
-            const lastBlock = contentBlocks[contentBlocks.length - 1];
-            if (lastBlock?.type === 'text') {
-              lastBlock.content += delta;
-            } else {
-              contentBlocks.push({ type: 'text', content: delta });
-            }
           }
         }
 
