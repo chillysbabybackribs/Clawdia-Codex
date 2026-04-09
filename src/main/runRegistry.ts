@@ -74,3 +74,29 @@ export function cancelRun(runId: string): boolean {
   run.status = 'cancelled';
   return true;
 }
+
+/** Cancel all running runs. Called on app quit to prevent orphan processes. */
+export function cancelAllRuns(): number {
+  let count = 0;
+  for (const run of runs.values()) {
+    if (run.status === 'running') {
+      run.abort.abort();
+      run.status = 'cancelled';
+      count++;
+    }
+  }
+  return count;
+}
+
+/** Interrupt all running runs — abort processes but mark as 'interrupted' for resume. */
+export function interruptAllRuns(): number {
+  let count = 0;
+  for (const run of runs.values()) {
+    if (run.status === 'running') {
+      run.abort.abort();
+      run.status = 'interrupted';
+      count++;
+    }
+  }
+  return count;
+}

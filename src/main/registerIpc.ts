@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { IPC, IPC_EVENTS } from './ipc-channels';
-import { getDb } from './db';
+import { getDb, insertRun, updateRunStatus } from './db';
 import { loadSettings, patchSettings, getSetting } from './settingsStore';
 import type { ElectronBrowserService } from './browser/ElectronBrowserService';
 import { streamCodexChat } from './codex/codexChat';
@@ -37,6 +37,17 @@ export function registerIpc(browserService: ElectronBrowserService): void {
     const runId = generateRunId();
     const run = createRun(runId, conversationId);
 
+    // Persist run to DB for resume across restarts
+    insertRun({
+      id: runId,
+      conversationId,
+      status: 'running',
+      userText: text,
+      model,
+      tier,
+      startedAt: new Date().toISOString(),
+    });
+
     const w = win();
     const wc = w.webContents;
 
@@ -58,7 +69,7 @@ export function registerIpc(browserService: ElectronBrowserService): void {
 
         // Check if we were cancelled during execution
         if (run.status === 'cancelled') {
-          // Don't persist — run was cancelled
+          updateRunStatus(runId, 'cancelled');
           if (!wc.isDestroyed()) {
             wc.send(IPC_EVENTS.CHAT_RUN_END, { runId, conversationId, status: 'cancelled' });
           }
@@ -85,11 +96,13 @@ export function registerIpc(browserService: ElectronBrowserService): void {
 
         if (result.error) {
           completeRun(runId, 'failed', result.error);
+          updateRunStatus(runId, 'failed', result.error);
           if (!wc.isDestroyed()) {
             wc.send(IPC_EVENTS.CHAT_RUN_END, { runId, conversationId, status: 'failed', error: result.error });
           }
         } else {
           completeRun(runId, 'completed');
+          updateRunStatus(runId, 'completed');
           if (!wc.isDestroyed()) {
             wc.send(IPC_EVENTS.CHAT_RUN_END, { runId, conversationId, status: 'completed' });
           }
@@ -97,6 +110,7 @@ export function registerIpc(browserService: ElectronBrowserService): void {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         completeRun(runId, 'failed', message);
+        updateRunStatus(runId, 'failed', message);
         if (!wc.isDestroyed()) {
           wc.send(IPC_EVENTS.CHAT_RUN_END, { runId, conversationId, status: 'failed', error: message });
         }
@@ -116,6 +130,7 @@ export function registerIpc(browserService: ElectronBrowserService): void {
     if (!run) return { ok: false, error: 'run not found' };
     if (run.status !== 'running') return { ok: false, error: `run already ${run.status}` };
     const cancelled = cancelRun(runId);
+    if (cancelled) updateRunStatus(runId, 'cancelled');
     return { ok: cancelled };
   });
 

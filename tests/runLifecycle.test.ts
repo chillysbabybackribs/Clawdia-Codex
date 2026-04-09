@@ -10,9 +10,11 @@ import {
   createRun,
   getRun,
   cancelRun,
+  cancelAllRuns,
   completeRun,
   removeRun,
   generateRunId,
+  interruptAllRuns,
 } from '../src/main/runRegistry';
 import {
   RUN_STATUSES,
@@ -138,6 +140,28 @@ describe('runRegistry', () => {
       expect(RUN_STATUSES).toContain(run.status);
       cancelRun(runId);
       expect(RUN_STATUSES).toContain(run.status);
+    });
+  });
+
+  describe('interruptAllRuns', () => {
+    it('transitions all running runs to interrupted status', () => {
+      // Cancel any running runs leaked from prior tests before isolating this test
+      cancelAllRuns();
+
+      const id1 = generateRunId();
+      const id2 = generateRunId();
+      createRun(id1, 'conv-a');
+      createRun(id2, 'conv-b');
+
+      const count = interruptAllRuns();
+
+      expect(count).toBe(2);
+      expect(getRun(id1)!.status).toBe('interrupted');
+      expect(getRun(id2)!.status).toBe('interrupted');
+
+      // Cleanup
+      removeRun(id1);
+      removeRun(id2);
     });
   });
 
