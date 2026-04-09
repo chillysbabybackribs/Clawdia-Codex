@@ -233,7 +233,7 @@ function ExpandableRow({ label, tool, value }: { label: 'IN' | 'OUT'; tool: Tool
   );
 }
 
-function ToolBlock({ tool, isActiveTool = false, isPastTool = false }: { tool: ToolCall; isActiveTool?: boolean; isPastTool?: boolean }) {
+export function ToolBlock({ tool, isActiveTool = false, isPastTool = false }: { tool: ToolCall; isActiveTool?: boolean; isPastTool?: boolean }) {
   const [open, setOpen] = useState(false);
   const displayName = getDisplayName(tool.name);
   const hasCard = !!(tool.input || tool.output);
